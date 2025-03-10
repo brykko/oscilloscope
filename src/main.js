@@ -1,7 +1,7 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js';
 
 // Constants for data and playback
-const DATA_URL = '/probe1_nchan=369.bin';  // file in public folder
+const DATA_URL = './probe1_nchan=369.bin';  // file in public folder
 const SAMPLES_PER_SECOND = 30000;          // e.g., 30 kHz sampling rate
 const SWEEP_SPEED_FACTOR = 0.02;            // slows playback down
 const SWEEP_DURATION = 0.05;               // Sweep duration in seconds
