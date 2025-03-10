@@ -1,0 +1,19 @@
+import*as o from"https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js";(function(){const t=document.createElement("link").relList;if(t&&t.supports&&t.supports("modulepreload"))return;for(const e of document.querySelectorAll('link[rel="modulepreload"]'))i(e);new MutationObserver(e=>{for(const n of e)if(n.type==="childList")for(const a of n.addedNodes)a.tagName==="LINK"&&a.rel==="modulepreload"&&i(a)}).observe(document,{childList:!0,subtree:!0});function f(e){const n={};return e.integrity&&(n.integrity=e.integrity),e.referrerPolicy&&(n.referrerPolicy=e.referrerPolicy),e.crossOrigin==="use-credentials"?n.credentials="include":e.crossOrigin==="anonymous"?n.credentials="omit":n.credentials="same-origin",n}function i(e){if(e.ep)return;e.ep=!0;const n=f(e);fetch(e.href,n)}})();const F="./probe2_nchan=369.bin",_=3e4,B=.02,H=.05,N=369,R=50,I=250,P=I-R+1,G=5e-6;let m,d,S,g=[],A,p,O,E=0,x=0,v=0,l=0,h=0,u=window.innerWidth,s=window.innerHeight;function j(){m=new o.Scene,u=window.innerWidth,s=window.innerHeight,d=new o.OrthographicCamera(0,u,s,0,1,100),d.position.z=10,d.lookAt(0,0,0),S=new o.WebGLRenderer({antialias:!0}),S.setSize(u,s),document.body.appendChild(S.domElement),window.addEventListener("resize",z,!1)}function z(){u=window.innerWidth,s=window.innerHeight,d.left=0,d.right=u,d.top=s,d.bottom=0,d.updateProjectionMatrix(),S.setSize(u,s);for(let r of g)m.remove(r.mesh);g=[],T(),m.remove(A),W(),p&&p.scale.set(1,s,1)}async function q(){const t=await(await fetch(F)).arrayBuffer();O=new Float32Array(t),E=O.length,x=E/N,console.log(`Data loaded: ${E} samples. Samples per channel: ${x}`)}function T(){g=[];const t=u/(l-1),f=s/(P-1),i=G*s;for(let e=0;e<P;e++){const n=R+e,a=new o.BufferGeometry,c=new Float32Array(l*3),C=e*f;for(let w=0;w<l;w++){const U=w*t;c[w*3+0]=U,c[w*3+1]=C,c[w*3+2]=0}const L=new o.BufferAttribute(c,3);L.setUsage(o.DynamicDrawUsage),a.setAttribute("position",L),a.setDrawRange(0,l);const b=new o.LineBasicMaterial({color:10066329}),y=new o.Line(a,b);y.renderOrder=1,m.add(y),g.push({mesh:y,actualChannel:n,yOffset:C,amplitudeScale:i})}}function W(){const r=new o.BufferGeometry,t=new Float32Array(6);t[0]=0,t[1]=0,t[2]=0,t[3]=0,t[4]=s,t[5]=0,r.setAttribute("position",new o.BufferAttribute(t,3));const f=new o.LineBasicMaterial({color:16711680});A=new o.Line(r,f),A.renderOrder=2,m.add(A),p&&m.remove(p),p=X()}function X(){const t=new o.PlaneGeometry(50,s),f=new o.ShaderMaterial({uniforms:{glowColor:{value:new o.Color(16711680)},glowIntensity:{value:1}},vertexShader:`
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,fragmentShader:`
+      uniform vec3 glowColor;
+      uniform float glowIntensity;
+      varying vec2 vUv;
+      
+      void main() {
+        // Compute horizontal distance from center (vUv.x ranges from 0 to 1).
+        float dist = abs(vUv.x - 0.5) * 5.0; // 0 at center, 1 at edges.
+        // Fade out the alpha smoothly.
+        float alpha = 1.0 - smoothstep(0.0, 1.0, dist);
+        gl_FragColor = vec4(glowColor, alpha * glowIntensity);
+      }
+    `,blending:o.AdditiveBlending,transparent:!0,depthWrite:!1}),i=new o.Mesh(t,f);return i.position.set(0,s/2,0),i.renderOrder=1.5,m.add(i),i}let M=0;function D(r){requestAnimationFrame(D);const t=(r-M)/1e3;M=r;let i=_*t*B;for(;i>=1;){const a=Math.floor(h);for(let c of g){const C=c.actualChannel,L=c.mesh.geometry.attributes.position.array,b=(v+a)*N+C,y=O[b]*c.amplitudeScale;L[a*3+1]=c.yOffset+y}h++,i--,h>=l&&(h=0,v+=l,v+l>x&&(v=0))}for(let a of g)a.mesh.geometry.attributes.position.needsUpdate=!0;const n=h/(l-1)*u;A.position.x=n,p&&(p.position.x=n),S.render(m,d)}async function $(){j(),await q(),l=Math.floor(H*_),console.log("Sweep sample count:",l),v=0,h=0,T(),W(),D(0)}$();
