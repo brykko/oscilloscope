@@ -1,7 +1,7 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js';
 
 // Constants for data and playback
-const DATA_URL = './probe1_nchan=369.bin';  // file in public folder
+const DATA_URL = './probe2_nchan=369.bin';  // file in public folder
 const SAMPLES_PER_SECOND = 30000;          // e.g., 30 kHz sampling rate
 const SWEEP_SPEED_FACTOR = 0.02;            // slows playback down
 const SWEEP_DURATION = 0.05;               // Sweep duration in seconds
@@ -9,8 +9,8 @@ const SWEEP_DURATION = 0.05;               // Sweep duration in seconds
 const CHANNELS = 369;                      // Total channels in the source data
 
 // Subset constants for plotting a subset of channels:
-const FIRST_CHANNEL = 100;
-const LAST_CHANNEL  = 300;
+const FIRST_CHANNEL = 50;
+const LAST_CHANNEL  = 250;
 const PLOT_CHANNELS = LAST_CHANNEL - FIRST_CHANNEL + 1;
 
 // A fraction used to compute amplitude scaling relative to viewHeight
