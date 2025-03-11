@@ -1,4 +1,4 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js';
+import * as THREE from 'three';
 
 // Constants for data and playback
 const DATA_URL = './probe2_nchan=369.bin';  // file in public folder
@@ -14,7 +14,7 @@ const LAST_CHANNEL  = 250;
 const PLOT_CHANNELS = LAST_CHANNEL - FIRST_CHANNEL + 1;
 
 // A fraction used to compute amplitude scaling relative to viewHeight
-const AMPLITUDE_SCALE_FACTOR = 0.000005;
+const AMPLITUDE_SCALE_FACTOR = 0.0000050;
 
 let scene, camera, renderer;
 let lineMeshes = [];   // Array of objects: { mesh, actualChannel, yOffset, amplitudeScale }
@@ -46,6 +46,7 @@ function initThree() {
   
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(viewWidth, viewHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
   document.body.appendChild(renderer.domElement);
   
   window.addEventListener('resize', onWindowResize, false);
