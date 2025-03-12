@@ -180,7 +180,7 @@ function createPersistentLines() {
     geometry.setAttribute('position', attribute);
     geometry.setDrawRange(0, sweepSampleCount);
     
-    const material = new THREE.LineBasicMaterial({ color: 0x999999 });
+    const material = new THREE.LineBasicMaterial({ color: 0xffffff });
     const line = new THREE.Line(geometry, material);
     line.renderOrder = 1;
     scene.add(line);
