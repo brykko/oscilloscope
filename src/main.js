@@ -8,12 +8,12 @@ const SWEEP_DURATION = 0.05;                // Sweep duration in seconds
 const CHANNELS = 385;                       // Total channels in the raw data
 
 // Subset constants for plotting a subset of channels:
-const FIRST_CHANNEL = 100;
+const FIRST_CHANNEL = 200;
 const LAST_CHANNEL  = 300;
 const PLOT_CHANNELS = LAST_CHANNEL - FIRST_CHANNEL + 1;
 
 // Amplitude scaling factor (relative to viewHeight)
-const AMPLITUDE_SCALE_FACTOR = 0.000001;
+const AMPLITUDE_SCALE_FACTOR = 0.0000015;
 
 // Spike tick appearance constants:
 const TICK_HEIGHT = 10;       // Height in pixels
@@ -334,11 +334,11 @@ function createCursorGlow() {
       void main() {
         float alpha;
         if (vUv.x < 0.5) {
-          float d = (0.5 - vUv.x) / 0.5;
-          alpha = 1.0 - pow(d, 0.5);
+          float d = (0.5 - vUv.x) / 0.2;
+          alpha = 1.0 - d;
         } else {
-          float d = (vUv.x - 0.5) / 0.5;
-          alpha = 1.0 - pow(d, 2.0);
+          float d = (vUv.x - 0.5) / 0.2;
+          alpha = 1.0 - d;
         }
         gl_FragColor = vec4(glowColor, alpha * glowIntensity);
       }
