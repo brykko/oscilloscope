@@ -38,14 +38,16 @@ let viewWidth = window.innerWidth;
 let viewHeight = window.innerHeight;
 
 // URL query switches
-let showSpikes, showFactors;
+let showSpikes, showFactors, useClusterColors;
 
 function setURLOptions() {
   const queryParams = new URLSearchParams(window.location.search);
   showSpikes = (queryParams.get('showSpikes') ?? 'false') === 'true';
   showFactors = (queryParams.get('showFactors') ?? 'false') === 'true';
+  useClusterColors = (queryParams.get('useClusterColors') ?? 'false') === 'true';
   console.log("showSpikes =", showSpikes);
   console.log("showFactors =", showFactors);
+  console.log("useClusterColors =", useClusterColors);
 }
 
 // === Spike Data Globals ===
@@ -249,7 +251,14 @@ function updateSpikeOverlay() {
     
     // Get the cluster id and map to a color.
     const clusterId = spikeClusters[i];
-    const color = getClusterColor(clusterId);
+
+    let color;
+    if (useClusterColors) {
+        color = getClusterColor(clusterId);
+    } else {
+        color = new THREE.Color();
+        color.setRGB(1, 1, 1);
+      }
     
     // Build a quad (two triangles) for a thick spike tick.
     // We want the quad centered at (spikeX, spikeY) with width = TICK_THICKNESS and height = TICK_HEIGHT.
@@ -282,84 +291,6 @@ function updateSpikeOverlay() {
   spikeOverlayMesh.geometry.attributes.position.needsUpdate = true;
   spikeOverlayMesh.geometry.attributes.color.needsUpdate = true;
 }
-
-// function updateSpikeOverlay() {
-//   // Ensure we have enough sampleTimes for the current sweep.
-//   if (!sampleTimes || sampleTimes.length < windowStartSample + sweepSampleCount) return;
-  
-//   // Determine the time window for the current sweep.
-//   const currentSampleAbs = windowStartSample + currentSample;
-//   const currentTime = sampleTimes[currentSampleAbs];
-//   const startTime = sampleTimes[windowStartSample];
-//   const endTime = sampleTimes[windowStartSample + sweepSampleCount - 1];
-//   const overwriteTime = currentTime - SWEEP_DURATION; // spikes older than this are considered overwritten
-  
-//   const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
-//   const positions = [];
-//   const colors = [];
-  
-//   // Debug log (you can comment these out later)
-//   //console.log("UpdateSpikeOverlay:", { currentTime, startTime, endTime, overwriteTime });
-  
-//   // Iterate over each spike event.
-//   for (let i = 0; i < spikeTimes.length; i++) {
-//     let spikeTime = spikeTimes[i];
-//     // Only consider spikes that occur within the current sweep window and that are not too old.
-//     if (spikeTime < overwriteTime || spikeTime > endTime) continue;
-//     // Only reveal spike ticks after the cursor has passed their time.
-//     if (spikeTime > currentTime) continue;
-    
-//     // Map spike time to an x-coordinate.
-//     let fraction = (spikeTime - startTime) / SWEEP_DURATION;
-//     // In case of slight negative fraction, wrap it.
-//     if (fraction < 0) fraction += 1.0;
-//     let spikeX = fraction * viewWidth;
-    
-//     // Get the spike channel and only use it if it's in our plotted subset.
-//     let spikeCh = spikeChannels[i];
-//     if (spikeCh < FIRST_CHANNEL || spikeCh > LAST_CHANNEL) continue;
-//     let index = spikeCh - FIRST_CHANNEL;
-//     let spikeY = index * verticalSpacing;
-    
-//     // Determine color based on spike cluster.
-//     let clusterId = spikeClusters[i];
-//     const color = getClusterColor(clusterId);
-//     // console.log(color);
-    
-//     // Build a quad for a thick spike tick.
-//     const halfThick = TICK_THICKNESS / 2;
-//     const halfTickH = TICK_HEIGHT / 2;
-    
-//     // Four corners of the quad:
-//     const bl = [spikeX - halfThick, spikeY - halfTickH, 0];
-//     const tl = [spikeX - halfThick, spikeY + halfTickH, 0];
-//     const tr = [spikeX + halfThick, spikeY + halfTickH, 0];
-//     const br = [spikeX + halfThick, spikeY - halfTickH, 0];
-    
-//     // Two triangles: (bl, tl, tr) and (bl, tr, br)
-//     // console.log(bl, tl, tr, br);
-//     positions.push(...bl, ...tl, ...tr);
-//     positions.push(...bl, ...tr, ...br);
-    
-//     // For each vertex in the two triangles, push the same color.
-//     for (let j = 0; j < 6; j++) {
-//       // colors.push(255, 255, 255);
-//       colors.push(color.r, color.g, color.b);
-//     }
-//   }
-  
-//   // Update the spike overlay geometry.
-//   spikeOverlayMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-//   spikeOverlayMesh.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-//   spikeOverlayMesh.geometry.attributes.position.needsUpdate = true;
-//   spikeOverlayMesh.geometry.attributes.color.needsUpdate = true;
-  
-//   // For debugging: log if no spikes were drawn.
-//   if (positions.length === 0) {
-//     console.log("No spikes drawn in current update.");
-//   }
-// }
-
 
 // === Cursor and Glow ===
 function createCursor() {
@@ -423,49 +354,6 @@ function createCursorGlow() {
   scene.add(mesh);
   return mesh;
 }
-
-// function testSpikeOverlayMesh() {
-//   // Create a simple quad (two triangles) that appears in the center of the screen.
-//   const geometry = new THREE.BufferGeometry();
-//   // Define positions for a 100x100 square centered in the view.
-//   const positions = new Float32Array([
-//     viewWidth/2 - 50, viewHeight/2 - 50, 0,
-//     viewWidth/2 - 50, viewHeight/2 + 50, 0,
-//     viewWidth/2 + 50, viewHeight/2 + 50, 0,
-    
-//     viewWidth/2 - 50, viewHeight/2 - 50, 0,
-//     viewWidth/2 + 50, viewHeight/2 + 50, 0,
-//     viewWidth/2 + 50, viewHeight/2 - 50, 0
-//   ]);
-  
-//   // Set a single color (say, bright red) for all vertices.
-//   const colors = new Float32Array([
-//     1, 0, 0,
-//     1, 0, 0,
-//     1, 0, 0,
-    
-//     1, 0, 0,
-//     1, 0, 0,
-//     1, 0, 0
-//   ]);
-  
-//   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-//   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  
-//   // Use a basic material that uses vertex colors.
-//   // const material = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true });
-//   const material = new THREE.MeshBasicMaterial({ 
-//     vertexColors: true, 
-//     side: THREE.DoubleSide,
-//   });
-//   const testMesh = new THREE.Mesh(geometry, material);
-  
-//   // Set a render order so it's on top.
-//   testMesh.renderOrder = 4;
-//   scene.add(testMesh);
-  
-//   console.log("Test spike overlay mesh added.");
-// }
 
 // === Animation Loop ===
 let lastTime = 0;
