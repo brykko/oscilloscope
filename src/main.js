@@ -1,20 +1,19 @@
 import * as THREE from 'three';
 
 // Constants for data and playback
-const DATA_URL = './probe2_nchan=369.bin';  // file in public folder
+const DATA_URL = './probe2_nchan=385.bin';  // file in public folder
 const SAMPLES_PER_SECOND = 30000;          // e.g., 30 kHz sampling rate
 const SWEEP_SPEED_FACTOR = 0.02;            // slows playback down
 const SWEEP_DURATION = 0.05;               // Sweep duration in seconds
-
-const CHANNELS = 369;                      // Total channels in the source data
+const CHANNELS = 385;                      // Total channels in the source data
 
 // Subset constants for plotting a subset of channels:
-const FIRST_CHANNEL = 50;
-const LAST_CHANNEL  = 250;
+const FIRST_CHANNEL = 100;
+const LAST_CHANNEL  = 300;
 const PLOT_CHANNELS = LAST_CHANNEL - FIRST_CHANNEL + 1;
 
 // A fraction used to compute amplitude scaling relative to viewHeight
-const AMPLITUDE_SCALE_FACTOR = 0.0000050;
+const AMPLITUDE_SCALE_FACTOR = 0.000001;
 
 let scene, camera, renderer;
 let lineMeshes = [];   // Array of objects: { mesh, actualChannel, yOffset, amplitudeScale }
@@ -32,6 +31,17 @@ let currentSample = 0;     // Current sample index within the sweep window
 // We'll use these variables to track the view dimensions in pixels.
 let viewWidth = window.innerWidth;
 let viewHeight = window.innerHeight;
+
+// URL query switches
+let showSpikes, showFactors;
+
+function setURLOptions() {
+  const queryParams = new URLSearchParams()
+  showSpikes = (queryParams.get('showSpikes') ?? 'false') === 'true';
+  showFactors = (queryParams.get('showFactors') ?? 'false') === 'true';
+  console.log("showSpikes = ", showSpikes);
+  console.log("showFactors = ", showFactors);
+}
 
 function initThree() {
   scene = new THREE.Scene();
@@ -88,14 +98,14 @@ async function loadDummyData() {
   // For debugging: create a dummy data array (all zeros).
   samplesPerChannel = 7500;  // For the entire file.
   totalSamples = samplesPerChannel * CHANNELS;
-  dataArray = new Float32Array(totalSamples);
+  dataArray = new Int16Array(totalSamples);
   console.log(`Dummy data created: ${totalSamples} samples. Samples per channel: ${samplesPerChannel}`);
 }
 
 async function loadData() {
   const response = await fetch(DATA_URL);
   const arrayBuffer = await response.arrayBuffer();
-  dataArray = new Float32Array(arrayBuffer);
+  dataArray = new Int16Array(arrayBuffer);
   totalSamples = dataArray.length;
   samplesPerChannel = totalSamples / CHANNELS;
   console.log(`Data loaded: ${totalSamples} samples. Samples per channel: ${samplesPerChannel}`);
@@ -269,6 +279,7 @@ function animate(timestamp) {
 }
 
 async function main() {
+  setURLOptions();
   initThree();
   await loadData();
   sweepSampleCount = Math.floor(SWEEP_DURATION * SAMPLES_PER_SECOND);
