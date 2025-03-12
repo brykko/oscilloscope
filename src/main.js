@@ -154,8 +154,14 @@ function createSpikeOverlay() {
 function updateSpikeOverlay() {
   if (!spikeTimes || spikeTimes.length === 0 || !sampleTimes || sampleTimes.length < windowStartSample + sweepSampleCount) return;
   
-  let startTime = sampleTimes[windowStartSample];
-  let endTime = sampleTimes[windowStartSample + sweepSampleCount - 1];
+  // Window start and end times
+  const currentSampleAbs = windowStartSample + currentSample;
+  const currentTime = sampleTimes[currentSampleAbs];
+  const startTime = sampleTimes[windowStartSample];
+  const endTime = sampleTimes[windowStartSample + sweepSampleCount - 1];
+
+  const overwriteTime = currentTime - SWEEP_DURATION;
+
   const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
   const tickHeight = 10; // tick mark height in pixels
   const currentCursorX = cursorMesh.position.x;
@@ -164,12 +170,15 @@ function updateSpikeOverlay() {
   
   for (let i = 0; i < spikeTimes.length; i++) {
     let spikeTime = spikeTimes[i];
-    if (spikeTime < startTime || spikeTime > endTime) continue;
-    let fraction = (spikeTime - startTime) / (endTime - startTime);
+    if (spikeTime < overwriteTime || spikeTime > endTime) continue;
+    let fraction = (spikeTime - startTime) / SWEEP_DURATION;
+    if (fraction < 0){
+        fraction = fraction + 1.0;
+    }
     let spikeX = fraction * viewWidth;
     
     // Only display the spike if it has already been swept over.
-    if (spikeX > currentCursorX) continue;
+    if (spikeTime > currentTime) continue;
     
     let spikeCh = spikeChannels[i];
     if (spikeCh < FIRST_CHANNEL || spikeCh > LAST_CHANNEL) continue;
@@ -184,46 +193,6 @@ function updateSpikeOverlay() {
   spikeOverlayMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   spikeOverlayMesh.geometry.attributes.position.needsUpdate = true;
 }
-
-// function updateSpikeOverlay() {
-//   if (!spikeTimes || spikeTimes.length === 0 || !sampleTimes || sampleTimes.length === 0) return;
-  
-//   // Determine the current time window from the raw data.
-//   // The current window corresponds to sample indices [windowStartSample, windowStartSample+sweepSampleCount-1]
-//   let startTime = sampleTimes[windowStartSample];
-//   let endTime = sampleTimes[windowStartSample + sweepSampleCount - 1];
-  
-//   // Compute vertical spacing for spike plotting (same as raw signals).
-//   const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
-//   const tickHeight = 10; // tick mark height in pixels
-  
-//   let positions = [];
-  
-//   // Loop over each spike event.
-//   // (For efficiency, you might use binary search to limit to spikes within [startTime, endTime].)
-//   for (let i = 0; i < spikeTimes.length; i++) {
-//     let spikeTime = spikeTimes[i];
-//     // Only consider spikes within the current time window.
-//     if (spikeTime < startTime || spikeTime > endTime) continue;
-//     // Compute relative fraction along the time axis.
-//     let fraction = (spikeTime - startTime) / (endTime - startTime);
-//     let x = fraction * viewWidth;
-    
-//     let ch = spikeChannels[i];
-//     // Only plot spikes on channels within our plotted subset.
-//     if (ch < FIRST_CHANNEL || ch > LAST_CHANNEL) continue;
-//     let index = ch - FIRST_CHANNEL;
-//     let y = index * verticalSpacing;
-    
-//     // Each spike is rendered as a vertical tick.
-//     positions.push(x, y - tickHeight/2, 0);
-//     positions.push(x, y + tickHeight/2, 0);
-//   }
-  
-//   // Update the spike overlay geometry.
-//   spikeOverlayMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-//   spikeOverlayMesh.geometry.attributes.position.needsUpdate = true;
-// }
 
 // --- End of Spike overlay functions ---
 
@@ -397,34 +366,6 @@ function animate(timestamp) {
   if (showSpikes && spikeOverlayMesh) {
     updateSpikeOverlay();
   }  
-  
-  // // --- Update spike overlay if enabled ---
-  // if (showSpikes && spikeOverlayMesh && sampleTimes && sampleTimes.length > windowStartSample + sweepSampleCount - 1) {
-  //   // Determine current time window from raw data.
-  //   let startTime = sampleTimes[windowStartSample];
-  //   let endTime = sampleTimes[windowStartSample + sweepSampleCount - 1];
-  //   const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
-  //   const tickHeight = 10; // height of each spike tick in pixels
-  //   let positions = [];
-    
-  //   // Loop over spike events.
-  //   for (let i = 0; i < spikeTimes.length; i++) {
-  //     let spikeTime = spikeTimes[i];
-  //     if (spikeTime < startTime || spikeTime > endTime) continue;
-  //     let timeFraction = (spikeTime - startTime) / (endTime - startTime);
-  //     let spikeX = timeFraction * viewWidth;
-  //     let spikeCh = spikeChannels[i];
-  //     if (spikeCh < FIRST_CHANNEL || spikeCh > LAST_CHANNEL) continue;
-  //     let index = spikeCh - FIRST_CHANNEL;
-  //     let spikeY = index * verticalSpacing;
-  //     // Create a vertical tick for this spike.
-  //     positions.push(spikeX, spikeY - tickHeight / 2, 0);
-  //     positions.push(spikeX, spikeY + tickHeight / 2, 0);
-  //   }
-    
-  //   spikeOverlayMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  //   spikeOverlayMesh.geometry.attributes.position.needsUpdate = true;
-  // }
   
   renderer.render(scene, camera);
 }
