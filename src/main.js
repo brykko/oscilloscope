@@ -1,30 +1,35 @@
 import * as THREE from 'three';
 
-// Constants for data and playback
-const DATA_URL = './probe2_nchan=385.bin';  // file in public folder
+// === Constants for Data and Playback ===
+const DATA_URL = './probe2_nchan=385.bin';  // Raw signal data file (Int16 binary)
 const SAMPLES_PER_SECOND = 30000;           // e.g., 30 kHz sampling rate
 const SWEEP_SPEED_FACTOR = 0.02;            // slows playback down
 const SWEEP_DURATION = 0.05;                // Sweep duration in seconds
-const CHANNELS = 385;                       // Total channels in the source data
+const CHANNELS = 385;                       // Total channels in the raw data
 
 // Subset constants for plotting a subset of channels:
 const FIRST_CHANNEL = 100;
 const LAST_CHANNEL  = 300;
 const PLOT_CHANNELS = LAST_CHANNEL - FIRST_CHANNEL + 1;
 
-// A fraction used to compute amplitude scaling relative to viewHeight
+// Amplitude scaling factor (relative to viewHeight)
 const AMPLITUDE_SCALE_FACTOR = 0.000001;
 
-let scene, camera, renderer;
-let lineMeshes = [];   // Array of objects: { mesh, actualChannel, yOffset, amplitudeScale }
-let cursorMesh;
-let cursorGlow;        // Glow mesh for the cursor
-let dataArray;         // Raw signal data (Int16Array)
-let totalSamples = 0;  // Total samples across all channels
-let samplesPerChannel = 0;
+// Spike tick appearance constants:
+const TICK_HEIGHT = 10;       // Height in pixels
+const TICK_THICKNESS = 4;     // Thickness in pixels
 
-// For the current sweep (a time window)
-let windowStartSample = 0; // Starting sample index (per channel) for the current sweep
+// === Global Variables ===
+let scene, camera, renderer;
+let lineMeshes = [];       // Raw signal lines; each entry: { mesh, actualChannel, yOffset, amplitudeScale }
+let cursorMesh;
+let cursorGlow;            // Cursor glow mesh
+let dataArray;             // Raw signal data (Int16Array)
+let totalSamples = 0;      // Total samples in raw data
+let samplesPerChannel = 0; // Samples per channel
+
+// Sweep variables (for ring-buffer updating):
+let windowStartSample = 0; // Starting sample index for current sweep
 let sweepSampleCount = 0;  // Number of samples per sweep = SWEEP_DURATION * SAMPLES_PER_SECOND
 let currentSample = 0;     // Current sample index within the sweep window
 
@@ -36,7 +41,6 @@ let viewHeight = window.innerHeight;
 let showSpikes, showFactors;
 
 function setURLOptions() {
-  // Make sure to pass window.location.search to URLSearchParams!
   const queryParams = new URLSearchParams(window.location.search);
   showSpikes = (queryParams.get('showSpikes') ?? 'false') === 'true';
   showFactors = (queryParams.get('showFactors') ?? 'false') === 'true';
@@ -44,13 +48,23 @@ function setURLOptions() {
   console.log("showFactors =", showFactors);
 }
 
+// === Spike Data Globals ===
+let spikeTimes;      // Float32Array from spike_times.bin
+let spikeChannels;   // Uint16Array from spike_channels.bin
+let spikeClusters;   // Typed array from spike_clusters.bin (assumed Uint16Array)
+let sampleTimes;     // Float32Array from sample_times.bin
+
+// For the spike overlay, we now create a Mesh (instead of line segments).
+let spikeOverlayMesh; // THREE.Mesh for spike ticks
+
+// === Initialization & Resize ===
 function initThree() {
   scene = new THREE.Scene();
   
   viewWidth = window.innerWidth;
   viewHeight = window.innerHeight;
   
-  // Define the camera in pixel units.
+  // Define an orthographic camera in pixel units.
   camera = new THREE.OrthographicCamera(0, viewWidth, viewHeight, 0, 1, 100);
   camera.position.z = 10;
   camera.lookAt(0, 0, 0);
@@ -67,7 +81,6 @@ function onWindowResize() {
   viewWidth = window.innerWidth;
   viewHeight = window.innerHeight;
   
-  // Update camera boundaries.
   camera.left = 0;
   camera.right = viewWidth;
   camera.top = viewHeight;
@@ -76,32 +89,31 @@ function onWindowResize() {
   
   renderer.setSize(viewWidth, viewHeight);
   
-  // Re-create persistent lines so that channel spacing and amplitude scaling update.
+  // Recreate raw signal lines.
   for (let obj of lineMeshes) {
     scene.remove(obj.mesh);
   }
   lineMeshes = [];
   createPersistentLines();
   
-  // Update cursor geometry.
+  // Recreate cursor and glow.
   scene.remove(cursorMesh);
   createCursor();
+  // if (cursorGlow) {
+  //   const glowWidth = 1; // constant width
+  //   cursorGlow.scale.set(glowWidth, viewHeight, 1);
+  // }
   
-  // Update the glow geometry scale.
-  if (cursorGlow) {
-    const glowWidth = 1; // constant width for glow
-    cursorGlow.scale.set(glowWidth, viewHeight, 1);
+  // Recreate spike overlay if enabled.
+  if (showSpikes) {
+    if (spikeOverlayMesh) {
+      scene.remove(spikeOverlayMesh);
+    }
+    createSpikeOverlayMesh();
   }
 }
 
-async function loadDummyData() {
-  // For debugging: create a dummy data array (all zeros).
-  samplesPerChannel = 7500;  // For the entire file.
-  totalSamples = samplesPerChannel * CHANNELS;
-  dataArray = new Int16Array(totalSamples);
-  console.log(`Dummy data created: ${totalSamples} samples. Samples per channel: ${samplesPerChannel}`);
-}
-
+// === Data Loading Functions ===
 async function loadData() {
   const response = await fetch(DATA_URL);
   const arrayBuffer = await response.arrayBuffer();
@@ -110,12 +122,6 @@ async function loadData() {
   samplesPerChannel = totalSamples / CHANNELS;
   console.log(`Data loaded: ${totalSamples} samples. Samples per channel: ${samplesPerChannel}`);
 }
-
-// --- Spike overlay variables and functions ---
-let spikeTimes;      // Float32Array from spike_times.bin
-let spikeChannels;   // Uint16Array from spike_channels.bin
-let sampleTimes;     // Float32Array from sample_times.bin
-let spikeOverlayMesh; // THREE.LineSegments for spike ticks
 
 async function loadSpikeData() {
   // Load spike_times.bin
@@ -128,6 +134,11 @@ async function loadSpikeData() {
   buffer = await response.arrayBuffer();
   spikeChannels = new Uint16Array(buffer);
   
+  // Load spike_clusters.bin
+  response = await fetch('./probe2_spike_clusters.bin');
+  buffer = await response.arrayBuffer();
+  spikeClusters = new Uint16Array(buffer);
+  
   // Load sample_times.bin
   response = await fetch('./probe2_sample_times.bin');
   buffer = await response.arrayBuffer();
@@ -136,94 +147,29 @@ async function loadSpikeData() {
   console.log("Spike data loaded:",
     spikeTimes.length, "spike times,",
     spikeChannels.length, "spike channels,",
+    spikeClusters.length, "spike clusters,",
     sampleTimes.length, "sample times");
 }
 
-function createSpikeOverlay() {
-  // Create an empty BufferGeometry for spike tick segments.
-  const geometry = new THREE.BufferGeometry();
-  // Initially no spikes; we'll update the attribute dynamically.
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
-  const material = new THREE.LineBasicMaterial({ color: 0xffffff });
-  spikeOverlayMesh = new THREE.LineSegments(geometry, material);
-  // Render on top of the raw signal and cursor.
-  spikeOverlayMesh.renderOrder = 3;
-  scene.add(spikeOverlayMesh);
-}
-
-function updateSpikeOverlay() {
-  if (!spikeTimes || spikeTimes.length === 0 || !sampleTimes || sampleTimes.length < windowStartSample + sweepSampleCount) return;
-  
-  // Window start and end times
-  const currentSampleAbs = windowStartSample + currentSample;
-  const currentTime = sampleTimes[currentSampleAbs];
-  const startTime = sampleTimes[windowStartSample];
-  const endTime = sampleTimes[windowStartSample + sweepSampleCount - 1];
-
-  const overwriteTime = currentTime - SWEEP_DURATION;
-
-  const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
-  const tickHeight = 10; // tick mark height in pixels
-  const currentCursorX = cursorMesh.position.x;
-  
-  let positions = [];
-  
-  for (let i = 0; i < spikeTimes.length; i++) {
-    let spikeTime = spikeTimes[i];
-    if (spikeTime < overwriteTime || spikeTime > endTime) continue;
-    let fraction = (spikeTime - startTime) / SWEEP_DURATION;
-    if (fraction < 0){
-        fraction = fraction + 1.0;
-    }
-    let spikeX = fraction * viewWidth;
-    
-    // Only display the spike if it has already been swept over.
-    if (spikeTime > currentTime) continue;
-    
-    let spikeCh = spikeChannels[i];
-    if (spikeCh < FIRST_CHANNEL || spikeCh > LAST_CHANNEL) continue;
-    let index = spikeCh - FIRST_CHANNEL;
-    let spikeY = index * verticalSpacing;
-    
-    // Add vertical tick for this spike.
-    positions.push(spikeX, spikeY - tickHeight / 2, 0);
-    positions.push(spikeX, spikeY + tickHeight / 2, 0);
-  }
-  
-  spikeOverlayMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  spikeOverlayMesh.geometry.attributes.position.needsUpdate = true;
-}
-
-// --- End of Spike overlay functions ---
-
-// Create persistent (dynamic) line geometry for each plotted channel.
+// === Create Persistent Raw Signal Lines ===
 function createPersistentLines() {
   lineMeshes = [];
   
-  // x coordinates span the entire width of the view.
-  const totalXRange = viewWidth;  // from 0 to viewWidth
+  const totalXRange = viewWidth;  // x from 0 to viewWidth
   const xStep = totalXRange / (sweepSampleCount - 1);
-  
-  // Compute vertical spacing so that channels fill the view vertically.
-  // Channel 0 at y=0, channel (PLOT_CHANNELS-1) at y = viewHeight.
   const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
-  
-  // Amplitude scaling is a fraction of viewHeight.
   const amplitudeScale = AMPLITUDE_SCALE_FACTOR * viewHeight;
   
   for (let i = 0; i < PLOT_CHANNELS; i++) {
     const actualChannel = FIRST_CHANNEL + i;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(sweepSampleCount * 3);
-    
-    // Baseline y: channel 0 at bottom, channel (PLOT_CHANNELS-1) at top.
     const yOffset = i * verticalSpacing;
     
-    // Precompute x coordinates and set initial y to the baseline.
     for (let j = 0; j < sweepSampleCount; j++) {
-      const x = j * xStep;  // x goes from 0 to viewWidth
+      const x = j * xStep;
       positions[j * 3 + 0] = x;
-      positions[j * 3 + 1] = yOffset; // initial baseline y
+      positions[j * 3 + 1] = yOffset;
       positions[j * 3 + 2] = 0;
     }
     
@@ -234,14 +180,188 @@ function createPersistentLines() {
     
     const material = new THREE.LineBasicMaterial({ color: 0x999999 });
     const line = new THREE.Line(geometry, material);
-    // Draw the line below the cursor.
     line.renderOrder = 1;
     scene.add(line);
+    
     lineMeshes.push({ mesh: line, actualChannel: actualChannel, yOffset: yOffset, amplitudeScale: amplitudeScale });
   }
 }
 
-// Create a vertical cursor spanning the full height (0 to viewHeight).
+// === Create Spike Overlay Mesh ===
+// We create a single Mesh whose geometry will contain quads (two triangles per spike tick).
+function createSpikeOverlayMesh() {
+  // Start with an empty geometry.
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
+  
+  const material = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true });
+  spikeOverlayMesh = new THREE.Mesh(geometry, material);
+  spikeOverlayMesh.renderOrder = 3;
+  scene.add(spikeOverlayMesh);
+}
+
+function getClusterColor(clusterId) {
+  // Map the cluster id to a hue value (0 to 1). Adjust multiplier as desired.
+  let hue = (clusterId * 0.1) % 1;
+  let color = new THREE.Color();
+  color.setHSL(hue, 0.8, 0.5);
+  return color;
+}
+
+function updateSpikeOverlay() {
+  // Ensure we have enough sampleTimes for the current sweep.
+  if (!sampleTimes || sampleTimes.length < windowStartSample + sweepSampleCount) return;
+  
+  // Determine the current time window.
+  const currentSampleAbs = windowStartSample + currentSample;
+  const currentTime = sampleTimes[currentSampleAbs];
+  const startTime = sampleTimes[windowStartSample];
+  const endTime = sampleTimes[windowStartSample + sweepSampleCount - 1];
+  const overwriteTime = currentTime - SWEEP_DURATION; // Spikes older than this are overwritten
+  
+  // Compute vertical spacing (same as raw signals).
+  const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
+  
+  // We'll accumulate vertices and colors for each spike tick.
+  const positions = [];
+  const colors = [];
+  
+  // Iterate over each spike event.
+  for (let i = 0; i < spikeTimes.length; i++) {
+    const spikeTime = spikeTimes[i];
+    // Only consider spikes within the current sweep window and not older than overwriteTime.
+    if (spikeTime < overwriteTime || spikeTime > endTime) continue;
+    // Only reveal spikes that have already been swept over.
+    if (spikeTime > currentTime) continue;
+    
+    // Map spike time to an x coordinate.
+    // Here we map the time span of one sweep (SWEEP_DURATION) to the view width.
+    let fraction = (spikeTime - startTime) / SWEEP_DURATION;
+    if (fraction < 0) fraction += 1.0; // Wrap negative fractions if needed.
+    const spikeX = fraction * viewWidth;
+    
+    // Get the channel and check that it's within the plotted subset.
+    const spikeCh = spikeChannels[i];
+    if (spikeCh < FIRST_CHANNEL || spikeCh > LAST_CHANNEL) continue;
+    const index = spikeCh - FIRST_CHANNEL;
+    const spikeY = index * verticalSpacing;
+    
+    // Get the cluster id and map to a color.
+    const clusterId = spikeClusters[i];
+    const color = getClusterColor(clusterId);
+    
+    // Build a quad (two triangles) for a thick spike tick.
+    // We want the quad centered at (spikeX, spikeY) with width = TICK_THICKNESS and height = TICK_HEIGHT.
+    const halfThick = TICK_THICKNESS / 2;
+    const halfTickH = TICK_HEIGHT / 2;
+    
+    // Define the four corners:
+    // bottom-left, top-left, top-right, bottom-right.
+    const bl = [spikeX - halfThick, spikeY - halfTickH, 0];
+    const tl = [spikeX - halfThick, spikeY + halfTickH, 0];
+    const tr = [spikeX + halfThick, spikeY + halfTickH, 0];
+    const br = [spikeX + halfThick, spikeY - halfTickH, 0];
+    
+    // To have counterclockwise ordering when viewed from the camera,
+    // we define the two triangles as:
+    // Triangle 1: (bl, tr, tl)
+    positions.push(...bl, ...tr, ...tl);
+    // Triangle 2: (bl, br, tr)
+    positions.push(...bl, ...br, ...tr);
+    
+    // For each vertex, push the same color.
+    for (let j = 0; j < 6; j++) {
+      colors.push(color.r, color.g, color.b);
+    }
+  }
+  
+  // Update the spike overlay mesh geometry.
+  spikeOverlayMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  spikeOverlayMesh.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  spikeOverlayMesh.geometry.attributes.position.needsUpdate = true;
+  spikeOverlayMesh.geometry.attributes.color.needsUpdate = true;
+}
+
+// function updateSpikeOverlay() {
+//   // Ensure we have enough sampleTimes for the current sweep.
+//   if (!sampleTimes || sampleTimes.length < windowStartSample + sweepSampleCount) return;
+  
+//   // Determine the time window for the current sweep.
+//   const currentSampleAbs = windowStartSample + currentSample;
+//   const currentTime = sampleTimes[currentSampleAbs];
+//   const startTime = sampleTimes[windowStartSample];
+//   const endTime = sampleTimes[windowStartSample + sweepSampleCount - 1];
+//   const overwriteTime = currentTime - SWEEP_DURATION; // spikes older than this are considered overwritten
+  
+//   const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
+//   const positions = [];
+//   const colors = [];
+  
+//   // Debug log (you can comment these out later)
+//   //console.log("UpdateSpikeOverlay:", { currentTime, startTime, endTime, overwriteTime });
+  
+//   // Iterate over each spike event.
+//   for (let i = 0; i < spikeTimes.length; i++) {
+//     let spikeTime = spikeTimes[i];
+//     // Only consider spikes that occur within the current sweep window and that are not too old.
+//     if (spikeTime < overwriteTime || spikeTime > endTime) continue;
+//     // Only reveal spike ticks after the cursor has passed their time.
+//     if (spikeTime > currentTime) continue;
+    
+//     // Map spike time to an x-coordinate.
+//     let fraction = (spikeTime - startTime) / SWEEP_DURATION;
+//     // In case of slight negative fraction, wrap it.
+//     if (fraction < 0) fraction += 1.0;
+//     let spikeX = fraction * viewWidth;
+    
+//     // Get the spike channel and only use it if it's in our plotted subset.
+//     let spikeCh = spikeChannels[i];
+//     if (spikeCh < FIRST_CHANNEL || spikeCh > LAST_CHANNEL) continue;
+//     let index = spikeCh - FIRST_CHANNEL;
+//     let spikeY = index * verticalSpacing;
+    
+//     // Determine color based on spike cluster.
+//     let clusterId = spikeClusters[i];
+//     const color = getClusterColor(clusterId);
+//     // console.log(color);
+    
+//     // Build a quad for a thick spike tick.
+//     const halfThick = TICK_THICKNESS / 2;
+//     const halfTickH = TICK_HEIGHT / 2;
+    
+//     // Four corners of the quad:
+//     const bl = [spikeX - halfThick, spikeY - halfTickH, 0];
+//     const tl = [spikeX - halfThick, spikeY + halfTickH, 0];
+//     const tr = [spikeX + halfThick, spikeY + halfTickH, 0];
+//     const br = [spikeX + halfThick, spikeY - halfTickH, 0];
+    
+//     // Two triangles: (bl, tl, tr) and (bl, tr, br)
+//     // console.log(bl, tl, tr, br);
+//     positions.push(...bl, ...tl, ...tr);
+//     positions.push(...bl, ...tr, ...br);
+    
+//     // For each vertex in the two triangles, push the same color.
+//     for (let j = 0; j < 6; j++) {
+//       // colors.push(255, 255, 255);
+//       colors.push(color.r, color.g, color.b);
+//     }
+//   }
+  
+//   // Update the spike overlay geometry.
+//   spikeOverlayMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+//   spikeOverlayMesh.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+//   spikeOverlayMesh.geometry.attributes.position.needsUpdate = true;
+//   spikeOverlayMesh.geometry.attributes.color.needsUpdate = true;
+  
+//   // For debugging: log if no spikes were drawn.
+//   if (positions.length === 0) {
+//     console.log("No spikes drawn in current update.");
+//   }
+// }
+
+
+// === Cursor and Glow ===
 function createCursor() {
   const cursorGeom = new THREE.BufferGeometry();
   const positions = new Float32Array(6);
@@ -254,21 +374,16 @@ function createCursor() {
   cursorGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
   cursorMesh = new THREE.Line(cursorGeom, material);
-  // Draw the cursor on top.
   cursorMesh.renderOrder = 2;
   scene.add(cursorMesh);
   
-  // Create the glow effect for the cursor using a custom shader.
   if (cursorGlow) scene.remove(cursorGlow);
   cursorGlow = createCursorGlow();
 }
 
-// Create a glow effect for the cursor using a custom shader (no external images).
-// (Later you can modify the shader to be asymmetric as desired.)
 function createCursorGlow() {
-  const glowWidth = 50;  // Width of the glow effect.
+  const glowWidth = 50;
   const geometry = new THREE.PlaneGeometry(glowWidth, viewHeight);
-  
   const material = new THREE.ShaderMaterial({
     uniforms: {
       glowColor: { value: new THREE.Color(0xff0000) },
@@ -285,8 +400,6 @@ function createCursorGlow() {
       uniform vec3 glowColor;
       uniform float glowIntensity;
       varying vec2 vUv;
-      
-      // Asymmetric glow: sharper on the leading side (vUv.x > 0.5) and more diffuse on trailing side.
       void main() {
         float alpha;
         if (vUv.x < 0.5) {
@@ -305,71 +418,110 @@ function createCursorGlow() {
   });
   
   const mesh = new THREE.Mesh(geometry, material);
-  // Position the glow mesh so that its center aligns with the cursor.
   mesh.position.set(0, viewHeight / 2, 0);
-  // Set renderOrder so that the glow appears just below the cursor.
   mesh.renderOrder = 1.5;
   scene.add(mesh);
   return mesh;
 }
 
-// Animation loop: update the persistent raw signal geometries and the spike overlay.
+// function testSpikeOverlayMesh() {
+//   // Create a simple quad (two triangles) that appears in the center of the screen.
+//   const geometry = new THREE.BufferGeometry();
+//   // Define positions for a 100x100 square centered in the view.
+//   const positions = new Float32Array([
+//     viewWidth/2 - 50, viewHeight/2 - 50, 0,
+//     viewWidth/2 - 50, viewHeight/2 + 50, 0,
+//     viewWidth/2 + 50, viewHeight/2 + 50, 0,
+    
+//     viewWidth/2 - 50, viewHeight/2 - 50, 0,
+//     viewWidth/2 + 50, viewHeight/2 + 50, 0,
+//     viewWidth/2 + 50, viewHeight/2 - 50, 0
+//   ]);
+  
+//   // Set a single color (say, bright red) for all vertices.
+//   const colors = new Float32Array([
+//     1, 0, 0,
+//     1, 0, 0,
+//     1, 0, 0,
+    
+//     1, 0, 0,
+//     1, 0, 0,
+//     1, 0, 0
+//   ]);
+  
+//   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+//   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  
+//   // Use a basic material that uses vertex colors.
+//   // const material = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true });
+//   const material = new THREE.MeshBasicMaterial({ 
+//     vertexColors: true, 
+//     side: THREE.DoubleSide,
+//   });
+//   const testMesh = new THREE.Mesh(geometry, material);
+  
+//   // Set a render order so it's on top.
+//   testMesh.renderOrder = 4;
+//   scene.add(testMesh);
+  
+//   console.log("Test spike overlay mesh added.");
+// }
+
+// === Animation Loop ===
 let lastTime = 0;
 function animate(timestamp) {
   requestAnimationFrame(animate);
+
+  // testSpikeOverlayMesh();
   
-  const dt = (timestamp - lastTime) / 1000; // seconds
+  const dt = (timestamp - lastTime) / 1000;
   lastTime = timestamp;
   
-  // Determine how many samples to advance this frame.
   const samplesToAdvance = SAMPLES_PER_SECOND * dt * SWEEP_SPEED_FACTOR;
   let samplesRemaining = samplesToAdvance;
   
   while (samplesRemaining >= 1) {
     const vertexIndex = Math.floor(currentSample);
-    // Update the vertex at vertexIndex for each channel.
     for (let obj of lineMeshes) {
       const actualChannel = obj.actualChannel;
       const positions = obj.mesh.geometry.attributes.position.array;
       const dataIndex = (windowStartSample + vertexIndex) * CHANNELS + actualChannel;
       const newData = dataArray[dataIndex] * obj.amplitudeScale;
-      // Update y coordinate: baseline plus data amplitude.
       positions[vertexIndex * 3 + 1] = obj.yOffset + newData;
     }
     currentSample++;
     samplesRemaining--;
     
-    // If we've reached the end of the sweep window, reset and move the window forward.
+    // Start a new sweep
     if (currentSample >= sweepSampleCount) {
       currentSample = 0;
       windowStartSample += sweepSampleCount;
       if (windowStartSample + sweepSampleCount > samplesPerChannel) {
         windowStartSample = 0;
       }
-      // New data will overwrite the existing vertices.
     }
   }
   
-  // Mark each channel's geometry as needing update.
   for (let obj of lineMeshes) {
     obj.mesh.geometry.attributes.position.needsUpdate = true;
   }
   
-  // Update the cursor's x position.
   const fraction = currentSample / (sweepSampleCount - 1);
   const xPos = fraction * viewWidth;
   cursorMesh.position.x = xPos;
   if (cursorGlow) {
     cursorGlow.position.x = xPos;
   }
-
+  
+  // Update spike overlay if enabled.
   if (showSpikes && spikeOverlayMesh) {
     updateSpikeOverlay();
-  }  
+  }
   
   renderer.render(scene, camera);
 }
 
+// === Main Entry Point ===
 async function main() {
   setURLOptions();
   initThree();
@@ -377,10 +529,11 @@ async function main() {
   // Load raw data.
   await loadData();
   
-  // If using spike overlay, load spike data.
+  // If spike overlay is enabled, load spike data.
   if (showSpikes) {
     await loadSpikeData();
-    createSpikeOverlay();
+    // Create the overlay mesh and then it will be updated each frame.
+    createSpikeOverlayMesh();
   }
   
   sweepSampleCount = Math.floor(SWEEP_DURATION * SAMPLES_PER_SECOND);
@@ -390,6 +543,7 @@ async function main() {
   
   createPersistentLines();
   createCursor();
+  
   animate(0);
 }
 
