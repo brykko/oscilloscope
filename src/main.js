@@ -8,12 +8,18 @@ const SWEEP_DURATION = 0.05;                // Sweep duration in seconds
 const CHANNELS = 385;                       // Total channels in the raw data
 
 // Subset constants for plotting a subset of channels:
+
+// 100-channel view
 const FIRST_CHANNEL = 200;
 const LAST_CHANNEL  = 300;
-const PLOT_CHANNELS = LAST_CHANNEL - FIRST_CHANNEL + 1;
+const AMPLITUDE_SCALE_FACTOR = 0.0000015; // Amplitude scaling factor (relative to viewHeight)
 
-// Amplitude scaling factor (relative to viewHeight)
-const AMPLITUDE_SCALE_FACTOR = 0.0000015;
+// Large-scale view
+// const FIRST_CHANNEL = 0;
+// const LAST_CHANNEL  = 320;
+// const AMPLITUDE_SCALE_FACTOR = 0.000001; // Amplitude scaling factor (relative to viewHeight)
+
+const numChannelsToPlot = LAST_CHANNEL - FIRST_CHANNEL + 1;
 
 // Spike tick appearance constants:
 const TICK_HEIGHT = 10;       // Height in pixels
@@ -159,10 +165,10 @@ function createPersistentLines() {
   
   const totalXRange = viewWidth;  // x from 0 to viewWidth
   const xStep = totalXRange / (sweepSampleCount - 1);
-  const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
+  const verticalSpacing = viewHeight / (numChannelsToPlot - 1);
   const amplitudeScale = AMPLITUDE_SCALE_FACTOR * viewHeight;
   
-  for (let i = 0; i < PLOT_CHANNELS; i++) {
+  for (let i = 0; i < numChannelsToPlot; i++) {
     const actualChannel = FIRST_CHANNEL + i;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(sweepSampleCount * 3);
@@ -223,7 +229,7 @@ function updateSpikeOverlay() {
   const overwriteTime = currentTime - SWEEP_DURATION; // Spikes older than this are overwritten
   
   // Compute vertical spacing (same as raw signals).
-  const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
+  const verticalSpacing = viewHeight / (numChannelsToPlot - 1);
   
   // We'll accumulate vertices and colors for each spike tick.
   const positions = [];
