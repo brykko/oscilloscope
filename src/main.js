@@ -6,12 +6,12 @@ const SAMPLES_PER_SECOND = 30000;           // e.g., 30 kHz sampling rate
 const SWEEP_SPEED_FACTOR = 0.02;            // slows playback down
 const SWEEP_DURATION = 0.05;                // Sweep duration in seconds
 const CHANNELS = 385;                       // Total channels in the raw data
-
 // Subset constants for plotting a subset of channels:
 
 // 100-channel view
 const FIRST_CHANNEL = 200;
 const LAST_CHANNEL  = 300;
+const PLOT_CHANNELS = LAST_CHANNEL - FIRST_CHANNEL + 1;
 const AMPLITUDE_SCALE_FACTOR = 0.0000015; // Amplitude scaling factor (relative to viewHeight)
 
 // Large-scale view
@@ -159,39 +159,85 @@ async function loadSpikeData() {
     sampleTimes.length, "sample times");
 }
 
-// === Create Persistent Raw Signal Lines ===
+// Create a ShaderMaterial that uses a per-vertex 'fade' attribute for opacity.
+const rawSignalMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    baseColor: { value: new THREE.Color(0xffffff) }
+  },
+  vertexShader: `
+    attribute float fade;
+    varying float vFade;
+    void main() {
+      vFade = fade;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform vec3 baseColor;
+    varying float vFade;
+    void main() {
+      gl_FragColor = vec4(baseColor, vFade);
+    }
+  `,
+  transparent: true
+});
+
 function createPersistentLines() {
   lineMeshes = [];
   
-  const totalXRange = viewWidth;  // x from 0 to viewWidth
+  const totalXRange = viewWidth;  // from 0 to viewWidth
   const xStep = totalXRange / (sweepSampleCount - 1);
-  const verticalSpacing = viewHeight / (numChannelsToPlot - 1);
+  const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
   const amplitudeScale = AMPLITUDE_SCALE_FACTOR * viewHeight;
   
-  for (let i = 0; i < numChannelsToPlot; i++) {
+  for (let i = 0; i < PLOT_CHANNELS; i++) {
     const actualChannel = FIRST_CHANNEL + i;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(sweepSampleCount * 3);
-    const yOffset = i * verticalSpacing;
+    const fades = new Float32Array(sweepSampleCount);  // new fade attribute
     
+    const yOffset = i * verticalSpacing;
     for (let j = 0; j < sweepSampleCount; j++) {
       const x = j * xStep;
       positions[j * 3 + 0] = x;
       positions[j * 3 + 1] = yOffset;
       positions[j * 3 + 2] = 0;
+      
+      fades[j] = 0.0;  // Start with fully transparent (unrevealed)
     }
     
-    const attribute = new THREE.BufferAttribute(positions, 3);
-    attribute.setUsage(THREE.DynamicDrawUsage);
-    geometry.setAttribute('position', attribute);
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('fade', new THREE.BufferAttribute(fades, 1)); // add fade attribute
     geometry.setDrawRange(0, sweepSampleCount);
     
-    const material = new THREE.LineBasicMaterial({ color: 0xffffff });
-    const line = new THREE.Line(geometry, material);
+    // IMPORTANT: Use rawSignalMaterial instead of a basic material.
+    const line = new THREE.Line(geometry, rawSignalMaterial);
     line.renderOrder = 1;
     scene.add(line);
     
     lineMeshes.push({ mesh: line, actualChannel: actualChannel, yOffset: yOffset, amplitudeScale: amplitudeScale });
+  }
+}
+
+function updateRawSignalFades() {
+  // Define the fade range – for example, vertices that are FADE_RANGE samples behind the current sample fade out to 0.
+  const FADE_RANGE = sweepSampleCount * 2;  // adjust this value as needed
+  
+  for (let obj of lineMeshes) {
+    const fades = obj.mesh.geometry.attributes.fade.array;
+    for (let j = 0; j < sweepSampleCount; j++) {
+      if (j < currentSample) {
+        let delta = currentSample - j;
+        // Fade value is 1 at currentSample, and linearly falls to 0 over FADE_RANGE samples.
+        let fadeVal = 1 - (delta / FADE_RANGE);
+        fades[j] = Math.max(0, Math.min(fadeVal, 1));
+      } else if (j === currentSample) {
+        fades[j] = 1.0; // fully visible at the current cursor.
+      } else {
+        fades[j] = 0.0; // not yet revealed.
+      }
+    }
+    obj.mesh.geometry.attributes.fade.needsUpdate = true;
   }
 }
 
@@ -412,6 +458,7 @@ function animate(timestamp) {
     updateSpikeOverlay();
   }
   
+  updateRawSignalFades();
   renderer.render(scene, camera);
 }
 
