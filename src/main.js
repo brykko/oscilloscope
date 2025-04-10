@@ -11,7 +11,6 @@ const CHANNELS = 385;                       // Total channels in the raw data
 // 100-channel view
 const FIRST_CHANNEL = 200;
 const LAST_CHANNEL  = 300;
-const PLOT_CHANNELS = LAST_CHANNEL - FIRST_CHANNEL + 1;
 const AMPLITUDE_SCALE_FACTOR = 0.0000015; // Amplitude scaling factor (relative to viewHeight)
 
 // Large-scale view
@@ -187,10 +186,10 @@ function createPersistentLines() {
   
   const totalXRange = viewWidth;  // from 0 to viewWidth
   const xStep = totalXRange / (sweepSampleCount - 1);
-  const verticalSpacing = viewHeight / (PLOT_CHANNELS - 1);
+  const verticalSpacing = viewHeight / (numChannelsToPlot - 1);
   const amplitudeScale = AMPLITUDE_SCALE_FACTOR * viewHeight;
   
-  for (let i = 0; i < PLOT_CHANNELS; i++) {
+  for (let i = 0; i < numChannelsToPlot; i++) {
     const actualChannel = FIRST_CHANNEL + i;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(sweepSampleCount * 3);
