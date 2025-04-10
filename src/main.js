@@ -205,7 +205,13 @@ function createPersistentLines() {
       
       fades[j] = 0.0;  // Start with fully transparent (unrevealed)
     }
-    
+
+  const reveals = new Float32Array(sweepSampleCount);  // new attribute to store when (in absolute samples) each vertex was revealed
+  for (let j = 0; j < sweepSampleCount; j++) {
+    reveals[j] = 0;  // initialize to zero (or you could initialize to windowStartSample for clarity)
+  }
+  geometry.setAttribute('revealTime', new THREE.BufferAttribute(reveals, 1));
+      
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('fade', new THREE.BufferAttribute(fades, 1)); // add fade attribute
     geometry.setDrawRange(0, sweepSampleCount);
@@ -220,22 +226,22 @@ function createPersistentLines() {
 }
 
 function updateRawSignalFades() {
-  // Define the fade range – for example, vertices that are FADE_RANGE samples behind the current sample fade out to 0.
-  const FADE_RANGE = sweepSampleCount * 2;  // adjust this value as needed
+  // Define FADE_RANGE in terms of absolute sample count.
+  // For example, let the fade last for FADE_RANGE samples.
+  const FADE_RANGE = sweepSampleCount*2;  // adjust this value as needed
+  
+  // Compute the current absolute sample count.
+  const globalSample = windowStartSample + currentSample;
   
   for (let obj of lineMeshes) {
     const fades = obj.mesh.geometry.attributes.fade.array;
+    const reveals = obj.mesh.geometry.attributes.revealTime.array;
     for (let j = 0; j < sweepSampleCount; j++) {
-      if (j < currentSample) {
-        let delta = currentSample - j;
-        // Fade value is 1 at currentSample, and linearly falls to 0 over FADE_RANGE samples.
-        let fadeVal = 1 - (delta / FADE_RANGE);
-        fades[j] = Math.max(0, Math.min(fadeVal, 1));
-      } else if (j === currentSample) {
-        fades[j] = 1.0; // fully visible at the current cursor.
-      } else {
-        fades[j] = 0.0; // not yet revealed.
-      }
+      // Compute how many samples ago this vertex was updated.
+      let delta = globalSample - reveals[j];
+      // Compute fade based on delta. Clamped between 0 and 1.
+      let fadeVal = 1 - (delta / FADE_RANGE);
+      fades[j] = Math.max(0, Math.min(fadeVal, 1));
     }
     obj.mesh.geometry.attributes.fade.needsUpdate = true;
   }
@@ -422,12 +428,16 @@ function animate(timestamp) {
   
   while (samplesRemaining >= 1) {
     const vertexIndex = Math.floor(currentSample);
+    // Compute the global (absolute) sample count.
+    const globalSample = windowStartSample + currentSample;
     for (let obj of lineMeshes) {
-      const actualChannel = obj.actualChannel;
       const positions = obj.mesh.geometry.attributes.position.array;
-      const dataIndex = (windowStartSample + vertexIndex) * CHANNELS + actualChannel;
+      const reveals = obj.mesh.geometry.attributes.revealTime.array;
+      const dataIndex = (windowStartSample + vertexIndex) * CHANNELS + obj.actualChannel;
       const newData = dataArray[dataIndex] * obj.amplitudeScale;
       positions[vertexIndex * 3 + 1] = obj.yOffset + newData;
+      // Store the absolute sample index when this vertex was updated.
+      reveals[vertexIndex] = globalSample;
     }
     currentSample++;
     samplesRemaining--;
@@ -444,6 +454,7 @@ function animate(timestamp) {
   
   for (let obj of lineMeshes) {
     obj.mesh.geometry.attributes.position.needsUpdate = true;
+    obj.mesh.geometry.attributes.revealTime.needsUpdate = true;
   }
   
   const fraction = currentSample / (sweepSampleCount - 1);
