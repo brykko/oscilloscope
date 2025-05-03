@@ -528,7 +528,7 @@ async function main() {
   toggleBtn.style.left = '10px';
   toggleBtn.style.zIndex = 9999;
   toggleBtn.style.padding = '6px 12px';
-  toggleBtn.style.fontSize = '14px';
+  toggleBtn.style.fontSize = '12px';
   toggleBtn.style.fontFamily = 'sans-serif';
   toggleBtn.style.background = '#222';
   toggleBtn.style.color = '#fff';
