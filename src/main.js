@@ -3,7 +3,7 @@ import * as THREE from 'three';
 // === Constants for Data and Playback ===
 const DATA_URL = './probe2_nchan=385.bin';  // Raw signal data file (Int16 binary)
 const SAMPLES_PER_SECOND = 30000;           // e.g., 30 kHz sampling rate
-const SWEEP_SPEED_FACTOR = 0.02;            // slows playback down
+const SWEEP_SPEED_FACTOR = 0.015;            // slows playback down
 const SWEEP_DURATION = 0.05;                // Sweep duration in seconds
 const CHANNELS = 385;                       // Total channels in the raw data
 // Subset constants for plotting a subset of channels:
@@ -23,6 +23,8 @@ const numChannelsToPlot = LAST_CHANNEL - FIRST_CHANNEL + 1;
 // Spike tick appearance constants:
 const TICK_HEIGHT = 10;       // Height in pixels
 const TICK_THICKNESS = 4;     // Thickness in pixels
+
+const FADE_DURATION_SECS = 0.05;
 
 // === Global Variables ===
 let scene, camera, renderer;
@@ -47,9 +49,9 @@ let showSpikes, showFactors, useClusterColors;
 
 function setURLOptions() {
   const queryParams = new URLSearchParams(window.location.search);
-  showSpikes = (queryParams.get('showSpikes') ?? 'false') === 'true';
-  showFactors = (queryParams.get('showFactors') ?? 'false') === 'true';
-  useClusterColors = (queryParams.get('useClusterColors') ?? 'false') === 'true';
+  showSpikes = (queryParams.get('showSpikes') ?? '0') === '1';
+  showFactors = (queryParams.get('showFactors') ?? '0') === '1';
+  useClusterColors = (queryParams.get('useClusterColors') ?? '0') === '1';
   console.log("showSpikes =", showSpikes);
   console.log("showFactors =", showFactors);
   console.log("useClusterColors =", useClusterColors);
@@ -106,10 +108,6 @@ function onWindowResize() {
   // Recreate cursor and glow.
   scene.remove(cursorMesh);
   createCursor();
-  // if (cursorGlow) {
-  //   const glowWidth = 1; // constant width
-  //   cursorGlow.scale.set(glowWidth, viewHeight, 1);
-  // }
   
   // Recreate spike overlay if enabled.
   if (showSpikes) {
@@ -158,36 +156,50 @@ async function loadSpikeData() {
     sampleTimes.length, "sample times");
 }
 
-// Create a ShaderMaterial that uses a per-vertex 'fade' attribute for opacity.
-const rawSignalMaterial = new THREE.ShaderMaterial({
-  uniforms: {
-    baseColor: { value: new THREE.Color(0xffffff) }
-  },
-  vertexShader: `
-    attribute float fade;
-    varying float vFade;
-    void main() {
-      vFade = fade;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  fragmentShader: `
-    uniform vec3 baseColor;
-    varying float vFade;
-    void main() {
-      gl_FragColor = vec4(baseColor, vFade);
-    }
-  `,
-  transparent: true
-});
+// Shared ShaderMaterial supporting both baseColor and per-vertex aColor, with fading.
+function createSharedShaderMaterial(useVertexColor) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      baseColor: { value: new THREE.Color(0xffffff).toArray().slice(0, 3) }, // vec3
+      useVertexColor: { value: useVertexColor ? 1.0 : 0.0 } // float
+    },
+    vertexShader: `
+      attribute float fade;
+      attribute vec3 aColor;
+
+      uniform vec3 baseColor;
+      uniform float useVertexColor;
+
+      varying vec4 vColor;
+
+      void main() {
+        float a = fade;
+        vec3 c = mix(baseColor, aColor, useVertexColor);
+        vColor = vec4(c, a);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec4 vColor;
+      void main() {
+        gl_FragColor = vColor;
+      }
+    `,
+    transparent: true
+  });
+}
 
 function createPersistentLines() {
   lineMeshes = [];
   
+  const reveals = new Float32Array(sweepSampleCount);
   const totalXRange = viewWidth;  // from 0 to viewWidth
   const xStep = totalXRange / (sweepSampleCount - 1);
   const verticalSpacing = viewHeight / (numChannelsToPlot - 1);
   const amplitudeScale = AMPLITUDE_SCALE_FACTOR * viewHeight;
+  
+  // Use shared shader material for raw signal lines (no per-vertex color)
+  const lineMaterial = createSharedShaderMaterial(false);
   
   for (let i = 0; i < numChannelsToPlot; i++) {
     const actualChannel = FIRST_CHANNEL + i;
@@ -205,18 +217,18 @@ function createPersistentLines() {
       fades[j] = 0.0;  // Start with fully transparent (unrevealed)
     }
 
-  const reveals = new Float32Array(sweepSampleCount);  // new attribute to store when (in absolute samples) each vertex was revealed
-  for (let j = 0; j < sweepSampleCount; j++) {
-    reveals[j] = 0;  // initialize to zero (or you could initialize to windowStartSample for clarity)
-  }
-  geometry.setAttribute('revealTime', new THREE.BufferAttribute(reveals, 1));
-      
+    const reveals = new Float32Array(sweepSampleCount);  // new attribute to store when (in absolute samples) each vertex was revealed
+    for (let j = 0; j < sweepSampleCount; j++) {
+      reveals[j] = 0;  // initialize to zero (or you could initialize to windowStartSample for clarity)
+    }
+    geometry.setAttribute('revealTime', new THREE.BufferAttribute(reveals, 1));
+        
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('fade', new THREE.BufferAttribute(fades, 1)); // add fade attribute
     geometry.setDrawRange(0, sweepSampleCount);
     
-    // IMPORTANT: Use rawSignalMaterial instead of a basic material.
-    const line = new THREE.Line(geometry, rawSignalMaterial);
+    // Use shared shader material
+    const line = new THREE.Line(geometry, lineMaterial);
     line.renderOrder = 1;
     scene.add(line);
     
@@ -225,26 +237,21 @@ function createPersistentLines() {
 }
 
 function updateRawSignalFades() {
-  // Define FADE_RANGE in terms of absolute sample count.
-  // For example, let the fade last for FADE_RANGE samples.
-  const FADE_RANGE = sweepSampleCount*2;  // adjust this value as needed
-  
-  // Compute the current absolute sample count.
   const globalSample = windowStartSample + currentSample;
-  
+  const currentTime = sampleTimes[globalSample];
+
   for (let obj of lineMeshes) {
     const fades = obj.mesh.geometry.attributes.fade.array;
     const reveals = obj.mesh.geometry.attributes.revealTime.array;
     for (let j = 0; j < sweepSampleCount; j++) {
-      // Compute how many samples ago this vertex was updated.
-      let delta = globalSample - reveals[j];
-      // Compute fade based on delta. Clamped between 0 and 1.
-      let fadeVal = 1 - (delta / FADE_RANGE);
+      let deltaT = currentTime - reveals[j];
+      let fadeVal = 1 - (deltaT / FADE_DURATION_SECS);
       fades[j] = Math.max(0, Math.min(fadeVal, 1));
     }
     obj.mesh.geometry.attributes.fade.needsUpdate = true;
   }
 }
+
 
 // === Create Spike Overlay Mesh ===
 // We create a single Mesh whose geometry will contain quads (two triangles per spike tick).
@@ -252,9 +259,11 @@ function createSpikeOverlayMesh() {
   // Start with an empty geometry.
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
-  
-  const material = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true });
+  geometry.setAttribute('aColor', new THREE.Float32BufferAttribute([], 3));
+  geometry.setAttribute('fade', new THREE.Float32BufferAttribute([], 1));
+
+  // Use shared shader material for per-vertex color and fade.
+  const material = createSharedShaderMaterial(true);
   spikeOverlayMesh = new THREE.Mesh(geometry, material);
   spikeOverlayMesh.renderOrder = 3;
   scene.add(spikeOverlayMesh);
@@ -271,21 +280,22 @@ function getClusterColor(clusterId) {
 function updateSpikeOverlay() {
   // Ensure we have enough sampleTimes for the current sweep.
   if (!sampleTimes || sampleTimes.length < windowStartSample + sweepSampleCount) return;
-  
+
   // Determine the current time window.
   const currentSampleAbs = windowStartSample + currentSample;
   const currentTime = sampleTimes[currentSampleAbs];
   const startTime = sampleTimes[windowStartSample];
   const endTime = sampleTimes[windowStartSample + sweepSampleCount - 1];
   const overwriteTime = currentTime - SWEEP_DURATION; // Spikes older than this are overwritten
-  
+
   // Compute vertical spacing (same as raw signals).
   const verticalSpacing = viewHeight / (numChannelsToPlot - 1);
-  
-  // We'll accumulate vertices and colors for each spike tick.
+
+  // We'll accumulate vertices, colors, and fades for each spike tick.
   const positions = [];
-  const colors = [];
-  
+  const vtxColors = [];
+  const fades = [];
+
   // Iterate over each spike event.
   for (let i = 0; i < spikeTimes.length; i++) {
     const spikeTime = spikeTimes[i];
@@ -293,60 +303,68 @@ function updateSpikeOverlay() {
     if (spikeTime < overwriteTime || spikeTime > endTime) continue;
     // Only reveal spikes that have already been swept over.
     if (spikeTime > currentTime) continue;
-    
+
+    // Compute fade: 1 - (currentTime - spikeTime) / SWEEP_DURATION, clamped 0..1
+    // let fade = 1 - (currentTime - spikeTime) / SWEEP_DURATION;
+    let fade = 1 - (currentTime - spikeTime) / FADE_DURATION_SECS;
+    fade = Math.max(0, Math.min(fade, 1));
+
     // Map spike time to an x coordinate.
     // Here we map the time span of one sweep (SWEEP_DURATION) to the view width.
     let fraction = (spikeTime - startTime) / SWEEP_DURATION;
     if (fraction < 0) fraction += 1.0; // Wrap negative fractions if needed.
     const spikeX = fraction * viewWidth;
-    
+
     // Get the channel and check that it's within the plotted subset.
     const spikeCh = spikeChannels[i];
     if (spikeCh < FIRST_CHANNEL || spikeCh > LAST_CHANNEL) continue;
     const index = spikeCh - FIRST_CHANNEL;
     const spikeY = index * verticalSpacing;
-    
+
     // Get the cluster id and map to a color.
     const clusterId = spikeClusters[i];
 
     let color;
     if (useClusterColors) {
-        color = getClusterColor(clusterId);
+      color = getClusterColor(clusterId);
     } else {
-        color = new THREE.Color();
-        color.setRGB(1, 1, 1);
-      }
-    
+      color = new THREE.Color();
+      color.setRGB(1, 1, 1);
+    }
+
     // Build a quad (two triangles) for a thick spike tick.
     // We want the quad centered at (spikeX, spikeY) with width = TICK_THICKNESS and height = TICK_HEIGHT.
     const halfThick = TICK_THICKNESS / 2;
     const halfTickH = TICK_HEIGHT / 2;
-    
+
     // Define the four corners:
     // bottom-left, top-left, top-right, bottom-right.
     const bl = [spikeX - halfThick, spikeY - halfTickH, 0];
     const tl = [spikeX - halfThick, spikeY + halfTickH, 0];
     const tr = [spikeX + halfThick, spikeY + halfTickH, 0];
     const br = [spikeX + halfThick, spikeY - halfTickH, 0];
-    
+
     // To have counterclockwise ordering when viewed from the camera,
     // we define the two triangles as:
     // Triangle 1: (bl, tr, tl)
     positions.push(...bl, ...tr, ...tl);
     // Triangle 2: (bl, br, tr)
     positions.push(...bl, ...br, ...tr);
-    
-    // For each vertex, push the same color.
+
+    // For each vertex, push the same color and fade.
     for (let j = 0; j < 6; j++) {
-      colors.push(color.r, color.g, color.b);
+      vtxColors.push(color.r, color.g, color.b);
+      fades.push(fade);
     }
   }
-  
+
   // Update the spike overlay mesh geometry.
   spikeOverlayMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  spikeOverlayMesh.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  spikeOverlayMesh.geometry.setAttribute('aColor', new THREE.Float32BufferAttribute(vtxColors, 3));
+  spikeOverlayMesh.geometry.setAttribute('fade', new THREE.Float32BufferAttribute(fades, 1));
   spikeOverlayMesh.geometry.attributes.position.needsUpdate = true;
-  spikeOverlayMesh.geometry.attributes.color.needsUpdate = true;
+  spikeOverlayMesh.geometry.attributes.aColor.needsUpdate = true;
+  spikeOverlayMesh.geometry.attributes.fade.needsUpdate = true;
 }
 
 // === Cursor and Glow ===
@@ -436,7 +454,8 @@ function animate(timestamp) {
       const newData = dataArray[dataIndex] * obj.amplitudeScale;
       positions[vertexIndex * 3 + 1] = obj.yOffset + newData;
       // Store the absolute sample index when this vertex was updated.
-      reveals[vertexIndex] = globalSample;
+      // reveals[vertexIndex] = globalSample;
+      reveals[vertexIndex] = sampleTimes[globalSample];
     }
     currentSample++;
     samplesRemaining--;
