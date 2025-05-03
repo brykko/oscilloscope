@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 // === Constants for Data and Playback ===
-const DATA_URL = './probe2_nchan=385.bin';  // Raw signal data file (Int16 binary)
+const SIGNAL_DATA_FILE = './probe2_nchan=385.bin';  // Raw signal data file (Int16 binary)
 const SAMPLES_PER_SECOND = 30000;           // e.g., 30 kHz sampling rate
 const SWEEP_SPEED_FACTOR = 0.015;            // slows playback down
 const SWEEP_DURATION = 0.05;                // Sweep duration in seconds
@@ -120,11 +120,17 @@ function onWindowResize() {
 
 // === Data Loading Functions ===
 async function loadData() {
-  const response = await fetch(DATA_URL);
-  const arrayBuffer = await response.arrayBuffer();
-  dataArray = new Int16Array(arrayBuffer);
+  let response = await fetch(SIGNAL_DATA_FILE);
+  let buffer = await response.arrayBuffer();
+  dataArray = new Int16Array(buffer);
   totalSamples = dataArray.length;
   samplesPerChannel = totalSamples / CHANNELS;
+
+  // Load sample_times.bin
+  response = await fetch('./probe2_sample_times.bin');
+  buffer = await response.arrayBuffer();
+  sampleTimes = new Float32Array(buffer);
+
   console.log(`Data loaded: ${totalSamples} samples. Samples per channel: ${samplesPerChannel}`);
 }
 
@@ -143,11 +149,6 @@ async function loadSpikeData() {
   response = await fetch('./probe2_spike_clusters.bin');
   buffer = await response.arrayBuffer();
   spikeClusters = new Uint16Array(buffer);
-  
-  // Load sample_times.bin
-  response = await fetch('./probe2_sample_times.bin');
-  buffer = await response.arrayBuffer();
-  sampleTimes = new Float32Array(buffer);
   
   console.log("Spike data loaded:",
     spikeTimes.length, "spike times,",
@@ -278,7 +279,9 @@ function getClusterColor(clusterId) {
 }
 
 function updateSpikeOverlay() {
+  console.log("SPIKE OVERLAY");
   // Ensure we have enough sampleTimes for the current sweep.
+  // if (!spikeTimes || !spikeChannels || !spikeClusters) return;
   if (!sampleTimes || sampleTimes.length < windowStartSample + sweepSampleCount) return;
 
   // Determine the current time window.
