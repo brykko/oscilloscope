@@ -518,6 +518,37 @@ async function main() {
   createCursor();
   
   animate(0);
+
+  // === Add toggle button for spike overlay ===
+  const toggleBtn = document.createElement('button');
+  toggleBtn.textContent = showSpikes ? 'Hide Spikes' : 'Show Spikes';
+  toggleBtn.style.position = 'absolute';
+  toggleBtn.style.top = '10px';
+  toggleBtn.style.left = '10px';
+  toggleBtn.style.zIndex = 10;
+  toggleBtn.style.padding = '6px 12px';
+  toggleBtn.style.fontSize = '14px';
+  toggleBtn.style.background = '#222';
+  toggleBtn.style.color = '#fff';
+  toggleBtn.style.border = '1px solid #555';
+  toggleBtn.style.cursor = 'pointer';
+  document.body.appendChild(toggleBtn);
+
+  toggleBtn.addEventListener('click', async () => {
+    showSpikes = !showSpikes;
+    toggleBtn.textContent = showSpikes ? 'Hide Spikes' : 'Show Spikes';
+
+    if (showSpikes && !spikeOverlayMesh) {
+      // If spike data hasn't been loaded yet, load it now
+      if (!spikeTimes || !spikeChannels || !spikeClusters) {
+        await loadSpikeData();
+      }
+      createSpikeOverlayMesh();
+    } else if (!showSpikes && spikeOverlayMesh) {
+      scene.remove(spikeOverlayMesh);
+      spikeOverlayMesh = null;
+    }
+  });
 }
 
 main();
