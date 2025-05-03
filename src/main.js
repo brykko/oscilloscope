@@ -522,12 +522,14 @@ async function main() {
   // === Add toggle button for spike overlay ===
   const toggleBtn = document.createElement('button');
   toggleBtn.textContent = showSpikes ? 'Hide Spikes' : 'Show Spikes';
+  toggleBtn.style.all = 'initial';
   toggleBtn.style.position = 'absolute';
   toggleBtn.style.top = '10px';
   toggleBtn.style.left = '10px';
-  toggleBtn.style.zIndex = 10;
+  toggleBtn.style.zIndex = 9999;
   toggleBtn.style.padding = '6px 12px';
   toggleBtn.style.fontSize = '14px';
+  toggleBtn.style.fontFamily = 'sans-serif';
   toggleBtn.style.background = '#222';
   toggleBtn.style.color = '#fff';
   toggleBtn.style.border = '1px solid #555';
