@@ -524,8 +524,8 @@ async function main() {
   toggleBtn.textContent = showSpikes ? 'Hide Spikes' : 'Show Spikes';
   toggleBtn.style.all = 'initial';
   toggleBtn.style.position = 'absolute';
-  toggleBtn.style.top = '10px';
-  toggleBtn.style.left = '10px';
+  toggleBtn.style.bottom = '10px';
+  toggleBtn.style.right = '10px';
   toggleBtn.style.zIndex = 9999;
   toggleBtn.style.padding = '6px 12px';
   toggleBtn.style.fontSize = '12px';
